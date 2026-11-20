@@ -22,7 +22,7 @@ The repository is private, so install the package from git. Locally this uses yo
 ```sh
 pnpm add "github:Angael/analytics#main&path:client"
 ```
-With npm or yarn, depend on `"minalytics": "github:Angael/analytics#main"` and point a workspace at `client/`. pnpm is simpler. The package builds itself on install through its `prepare` script.
+The built `dist/` is committed, so nothing runs on install. npm and yarn can't install from a git subdirectory; use pnpm, or Option A.
 > **CI/CD builds** (Vercel, Cloudflare Pages, Dokploy) need read access to the private repo. Use a fine-grained GitHub token, for example `git+https://<token>@github.com/Angael/analytics.git#main&path:client`. Alternatively, use Option A, which needs no build-time access.
 
 Create one module per app:

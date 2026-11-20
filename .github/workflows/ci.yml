@@ -24,8 +24,8 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm test
       - run: pnpm build
-      - name: committed server/public/a.js is up to date
-        run: git diff --exit-code ../server/public/a.js
+      - name: committed build output (client/dist, server/public/a.js) is up to date
+        run: git diff --exit-code -- dist ../server/public/a.js
 
   image:
     runs-on: ubuntu-latest

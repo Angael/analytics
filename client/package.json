@@ -21,8 +21,7 @@
     "build": "esbuild src/index.ts --bundle --format=esm --minify --target=es2020 --outfile=dist/index.js && esbuild src/script.ts --bundle --format=iife --minify --target=es2020 --outfile=dist/script.js && tsc && node -e \"try{require('fs').copyFileSync('dist/script.js','../server/public/a.js')}catch{}\"",
     "typecheck": "tsc --noEmit",
     "size": "gzip -9c dist/index.js | wc -c",
-    "test": "vitest run",
-    "prepare": "npm run build"
+    "test": "vitest run"
   },
   "devDependencies": {
     "esbuild": "^0.25.0",

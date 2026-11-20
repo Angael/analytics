@@ -17,7 +17,7 @@ compose.yaml  Dokploy "Compose" deploys; add compose.local.yaml to run locally
 
 ## Development
 ```sh
-cd client && pnpm i && pnpm test && pnpm build   # build also refreshes server/public/a.js (commit it)
+cd client && pnpm i && pnpm test && pnpm build   # build refreshes client/dist + server/public/a.js; commit both
 cd server && go test ./... && DASHBOARD_PASSWORD=x DB_PATH=./dev.db go run .
 DASHBOARD_PASSWORD=x docker compose -f compose.yaml -f compose.local.yaml up --build   # http://localhost:8080
 ```

@@ -1,0 +1,38 @@
+{
+  "name": "minalytics",
+  "packageManager": "pnpm@12.3.4",
+  "version": "0.1.0",
+  "description": "Tiny (~1 KB gzipped), cookieless, typed analytics client for the self-hosted minalytics server.",
+  "license": "MIT",
+  "type": "module",
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "esbuild src/index.ts --bundle --format=esm --minify --target=es2020 --outfile=dist/index.js && esbuild src/script.ts --bundle --format=iife --minify --target=es2020 --outfile=dist/script.js && tsc && node -e \"try{require('fs').copyFileSync('dist/script.js','../server/public/a.js')}catch{}\"",
+    "typecheck": "tsc --noEmit",
+    "size": "gzip -9c dist/index.js | wc -c",
+    "test": "vitest run",
+    "prepare": "npm run build"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0",
+    "happy-dom": "^21.0.4",
+    "typescript": "^5.9.0",
+    "vitest": "^5.1.1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Angael/analytics.git",
+    "directory": "client"
+  }
+}

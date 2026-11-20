@@ -1,0 +1,26 @@
+# Works for Dokploy "Compose" deployments and locally.
+# Dokploy: add the domain in the UI (service "analytics", port 8080); it attaches Traefik for you.
+# Local:  DASHBOARD_PASSWORD=x docker compose -f compose.yaml -f compose.local.yaml up --build
+services:
+  analytics:
+    build: .
+    restart: unless-stopped
+    expose: ["8080"]
+    volumes:
+      - analytics-data:/data
+    environment:
+      DASHBOARD_PASSWORD: ${DASHBOARD_PASSWORD:?set DASHBOARD_PASSWORD}
+      DASHBOARD_USER: ${DASHBOARD_USER:-admin}
+      SITES: ${SITES:-}
+      RETENTION_DAYS: ${RETENTION_DAYS:-0}
+      R2_ACCOUNT_ID: ${R2_ACCOUNT_ID:-}
+      R2_BUCKET: ${R2_BUCKET:-}
+      R2_ACCESS_KEY_ID: ${R2_ACCESS_KEY_ID:-}
+      R2_SECRET_ACCESS_KEY: ${R2_SECRET_ACCESS_KEY:-}
+      R2_PREFIX: ${R2_PREFIX:-analytics/}
+    deploy:
+      resources:
+        limits: { memory: 128M }
+
+volumes:
+  analytics-data:

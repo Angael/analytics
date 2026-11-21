@@ -24,6 +24,7 @@ type event struct {
 	device  int
 	browser int
 	os      int
+	ver     string // app/release version reported by the client (optional)
 }
 
 const schema = `
@@ -43,7 +44,8 @@ CREATE TABLE IF NOT EXISTS ev (
 	country TEXT,
 	device INTEGER NOT NULL,
 	browser INTEGER NOT NULL,
-	os INTEGER NOT NULL
+	os INTEGER NOT NULL,
+	ver INTEGER
 );
 CREATE INDEX IF NOT EXISTS ev_site_ts ON ev(site, ts);
 CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v BLOB);
@@ -65,7 +67,24 @@ func openStore(path string) (*store, error) {
 	if _, err := db.Exec(schema); err != nil {
 		return nil, err
 	}
+	if err := migrate(db); err != nil {
+		return nil, err
+	}
 	return &store{db: db, in: make(chan event, 4096), cache: map[string]int64{}}, nil
+}
+
+// migrate upgrades databases created by older versions in place. Steps must be idempotent.
+func migrate(db *sql.DB) error {
+	var n int
+	if err := db.QueryRow(`SELECT count(*) FROM pragma_table_info('ev') WHERE name = 'ver'`).Scan(&n); err != nil {
+		return err
+	}
+	if n == 0 {
+		if _, err := db.Exec(`ALTER TABLE ev ADD COLUMN ver INTEGER`); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *store) close() { s.db.Close() }
@@ -122,14 +141,14 @@ func (s *store) insert(evs []event) error {
 		return err
 	}
 	defer tx.Rollback()
-	stmt, err := tx.Prepare(`INSERT INTO ev VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`)
+	stmt, err := tx.Prepare(`INSERT INTO ev (ts, site, typ, name, path, ref, props, visitor, country, device, browser, os, ver) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`)
 	if err != nil {
 		return err
 	}
 	defer stmt.Close()
 	for _, e := range evs {
-		ids := [5]any{}
-		for i, v := range [5]string{e.site, e.name, e.path, e.ref, e.props} {
+		ids := [6]any{}
+		for i, v := range [6]string{e.site, e.name, e.path, e.ref, e.props, e.ver} {
 			if v == "" {
 				continue
 			}
@@ -143,7 +162,7 @@ func (s *store) insert(evs []event) error {
 		if e.country != "" {
 			country = e.country
 		}
-		if _, err := stmt.Exec(e.ts, ids[0], e.typ, ids[1], ids[2], ids[3], ids[4], e.visitor, country, e.device, e.browser, e.os); err != nil {
+		if _, err := stmt.Exec(e.ts, ids[0], e.typ, ids[1], ids[2], ids[3], ids[4], e.visitor, country, e.device, e.browser, e.os, ids[5]); err != nil {
 			return err
 		}
 	}

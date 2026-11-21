@@ -32,6 +32,7 @@ type ingest struct {
 // (navigator.sendBeacon, text/plain => no CORS preflight) or as a GET query string.
 //
 // Fields: s=site t=p|e p=path n=name r=referrer w=screen width d=props (url-encoded k=v pairs)
+// v=app/release version (optional). Unknown fields are ignored, so older and newer clients both work.
 func (in *ingest) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	var q url.Values
@@ -72,7 +73,7 @@ func (in *ingest) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if site == "" || (in.sites != nil && !in.sites[site]) {
 		return
 	}
-	e := event{ts: time.Now().Unix(), site: site, path: clip(q.Get("p"), 512)}
+	e := event{ts: time.Now().Unix(), site: site, path: clip(q.Get("p"), 512), ver: clip(q.Get("v"), 32)}
 	switch q.Get("t") {
 	case "p", "":
 		if e.path == "" {

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -16,6 +17,8 @@ import (
 const (
 	iphone = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"
 	linux  = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
+	// Electron inserts the app's own product token; this app's name contains a bot marker on purpose.
+	electron = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) uptime-monitor/1.4.0 Chrome/130.0.6723.191 Electron/33.2.1 Safari/537.36"
 )
 
 func newTestStore(t *testing.T) *store {
@@ -123,6 +126,66 @@ func TestIngestAndStats(t *testing.T) {
 	}
 	if got := getStats(t, st, "nope"); got.Views != 0 {
 		t.Fatal("unknown site should be empty")
+	}
+}
+
+func TestElectronAndVersions(t *testing.T) {
+	st := newTestStore(t)
+	in := &ingest{st: st}
+	post(in, "s=app&t=p&p=/settings&w=1920&v=1.4.0", electron, "1.1.1.1", "")
+	post(in, "s=app&t=p&p=/&w=1920&v=1.4.0", electron, "2.2.2.2", "")
+	post(in, "s=app&t=p&p=/&w=1920&v=1.3.9", electron, "3.3.3.3", "")
+	post(in, "s=app&t=p&p=/&w=1920", linux, "4.4.4.4", "") // older client / web build: no version
+	post(in, "s=app&t=e&n=export&p=/&v=1.4.0", electron, "1.1.1.1", "")
+	flush(t, st)
+
+	s := getStats(t, st, "app")
+	if s.Views != 4 || s.Events != 1 {
+		t.Fatalf("views=%d events=%d (electron app must not be treated as a bot)", s.Views, s.Events)
+	}
+	if s.Browsers[0].K != "Electron" || s.Browsers[0].V != 3 || s.OS[0].K != "Windows" {
+		t.Fatalf("browsers=%+v os=%+v", s.Browsers, s.OS)
+	}
+	if len(s.Versions) != 2 || s.Versions[0].K != "1.4.0" || s.Versions[0].V != 2 || s.Versions[1].K != "1.3.9" {
+		t.Fatalf("versions=%+v (pageviews only, unversioned rows excluded)", s.Versions)
+	}
+}
+
+// A database created by the previous schema (no ver column) must upgrade in place and keep its rows.
+func TestMigratesLegacyDB(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "old.db")
+	db, err := sql.Open("sqlite", "file:"+path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy := strings.Replace(schema, ",\n\tver INTEGER\n", "\n", 1)
+	if legacy == schema {
+		t.Fatal("test fixture out of date: could not derive legacy schema")
+	}
+	if _, err := db.Exec(legacy); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO str(id, s) VALUES (1, 'blog'), (2, '/')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO ev VALUES (?, 1, 0, NULL, 2, NULL, NULL, 42, NULL, 0, 1, 3)`, time.Now().Unix()); err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+
+	for range 2 { // reopening an already-migrated DB must be a no-op
+		st, err := openStore(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		st.insert([]event{{ts: time.Now().Unix(), site: "blog", path: "/", ver: "2.0.0"}})
+		st.close()
+	}
+	st, _ := openStore(path)
+	defer st.close()
+	s := getStats(t, st, "blog")
+	if s.Views != 3 || len(s.Versions) != 1 || s.Versions[0].K != "2.0.0" || s.Versions[0].V != 2 {
+		t.Fatalf("views=%d versions=%+v", s.Views, s.Versions)
 	}
 }
 
@@ -247,6 +310,7 @@ func TestParseUA(t *testing.T) {
 		{"Mozilla/5.0 (Linux; Android 14; SM-X710) AppleWebKit/537.36 Chrome/130 Safari/537.36", 0, "Chrome", "Android", "Tablet"},
 		{"Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 Chrome/130 Mobile Safari/537.36", 0, "Chrome", "Android", "Mobile"},
 		{linux, 400, "Chrome", "Linux", "Mobile"},
+		{electron, 1920, "Electron", "Windows", "Desktop"},
 	}
 	for _, c := range cases {
 		b, o, d := parseUA(c.ua, c.w)
@@ -259,8 +323,11 @@ func TestParseUA(t *testing.T) {
 			t.Errorf("isBot(%q) = false", ua)
 		}
 	}
-	if isBot(linux) {
-		t.Error("real browser flagged as bot")
+	if isBot(linux) || isBot(electron) {
+		t.Error("real browser / electron app flagged as bot")
+	}
+	if !isBot("Mozilla/5.0 (KHTML, like Gecko) my-app/1.0 HeadlessChrome/130 Electron/33") {
+		t.Error("headless electron must still be a bot")
 	}
 }
 

@@ -5,7 +5,8 @@
  * <script defer src="https://stats.example.com/a.js" data-site="blog"></script>
  * ```
  *
- * `data-endpoint` defaults to the script's origin. Optional: `data-auto="false"`, `data-dnt="true"`.
+ * `data-endpoint` defaults to the script's origin. Optional: `data-auto="false"`, `data-dnt="true"`,
+ * `data-version="1.4.0"`, `data-hash="false"` (ignore `#/` hash routes).
  * Exposes `window.minalytics` with `track(name, props)` and `pageview(path)`.
  */
 import { init, track, pageview } from './index'
@@ -18,6 +19,8 @@ if (s) {
     site: d.site || location.hostname,
     autoPageviews: d.auto !== 'false',
     respectDnt: d.dnt === 'true',
+    hashRoutes: d.hash !== 'false',
+    version: d.version,
   })
 }
 ;(window as any).minalytics = { track, pageview }

@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { createAnalytics, init, track, pageview, ignoreThisBrowser, type Analytics } from '../src/index'
+import { createAnalytics, init, track, pageview, ignoreThisBrowser, isBrowserIgnored, type Analytics } from '../src/index'
 
 const sent: URLSearchParams[] = []
 let client: Analytics | undefined
@@ -9,8 +9,17 @@ const tick = () => new Promise((r) => setTimeout(r, 5))
 const make = (opts: Partial<Parameters<typeof createAnalytics>[0]> = {}) =>
   (client = createAnalytics({ endpoint: 'https://pulse.example.com/', site: 'blog', ignoreLocalhost: false, ...opts }))
 
+const BASE = location.href
+const ELECTRON_UA =
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) my-app/1.4.0 Chrome/130.0.0.0 Electron/33.2.1 Safari/537.36'
+const realUA = navigator.userAgent
+const setUA = (ua: string) => Object.defineProperty(navigator, 'userAgent', { value: ua, configurable: true })
+const goto = (url: string) => (window as any).happyDOM.setURL(url)
+
 beforeEach(() => {
   sent.length = 0
+  goto(BASE)
+  setUA(realUA)
   localStorage.clear()
   history.replaceState(null, '', '/')
   Object.defineProperty(document, 'referrer', { value: '', configurable: true })
@@ -150,13 +159,23 @@ describe('filters', () => {
     delete (navigator as any).globalPrivacyControl
   })
 
-  it('ignoreThisBrowser opts out via localStorage', () => {
+  it('ignoreThisBrowser opts out via localStorage, effective immediately', () => {
     ignoreThisBrowser()
-    make()
-    expect(sent).toHaveLength(0)
+    expect(isBrowserIgnored()).toBe(true)
+    make({ autoPageviews: false })
+    client!.track('a')
     ignoreThisBrowser(false)
-    make()
-    expect(sent).toHaveLength(1)
+    expect(isBrowserIgnored()).toBe(false)
+    client!.track('b')
+    ignoreThisBrowser()
+    client!.track('c')
+    expect(sent.map((q) => q.get('n'))).toEqual(['b'])
+  })
+
+  it('enabled: false sends nothing', () => {
+    make({ enabled: false })
+    client!.track('x')
+    expect(sent).toHaveLength(0)
   })
 
   it('falls back to fetch when sendBeacon is unavailable', () => {
@@ -184,5 +203,90 @@ describe('singleton', () => {
     await tick()
     expect(sent.map((q) => q.get('s') + ':' + (q.get('n') ?? q.get('p')))).toEqual(['a:/', 'a:later', 'b:/', 'b:/z'])
     init({ endpoint: 'x', site: 'x', autoPageviews: false, ignoreLocalhost: true }).destroy()
+  })
+})
+
+describe('version', () => {
+  it('sends v on every request when set, omits it otherwise', () => {
+    make({ version: '1.4.0' })
+    client!.track('x')
+    expect(sent.map((q) => q.get('v'))).toEqual(['1.4.0', '1.4.0'])
+    client!.destroy()
+    sent.length = 0
+    make()
+    expect(sent[0]!.has('v')).toBe(false)
+  })
+})
+
+describe('hash routes', () => {
+  it('tracks #/ routes as pages, via pushState and hashchange', async () => {
+    history.replaceState(null, '', '/#/inbox?tab=2')
+    make()
+    history.pushState(null, '', '/#/settings')
+    await tick()
+    history.replaceState(null, '', '/#/about')
+    dispatchEvent(new HashChangeEvent('hashchange'))
+    await tick()
+    client!.track('x')
+    expect(sent.map((q) => q.get('p'))).toEqual(['/inbox', '/settings', '/about', '/about'])
+  })
+
+  it('supports #! and appends the route to non-root paths', () => {
+    history.replaceState(null, '', '/docs#!/intro')
+    make()
+    expect(sent[0]!.get('p')).toBe('/docs#/intro')
+  })
+
+  it('ignores plain anchors and can be disabled', () => {
+    history.replaceState(null, '', '/page#pricing')
+    make()
+    expect(sent[0]!.get('p')).toBe('/page')
+    client!.destroy()
+    sent.length = 0
+    history.replaceState(null, '', '/#/settings')
+    make({ hashRoutes: false })
+    expect(sent[0]!.get('p')).toBe('/')
+  })
+})
+
+describe('desktop apps', () => {
+  const opts = { ignoreLocalhost: true } // the real default: these must work without opting in
+
+  it('packaged Electron (file:) is tracked with clean routes, never the install path', () => {
+    setUA(ELECTRON_UA)
+    goto('file:///C:/Users/alice/AppData/Local/my-app/resources/app.asar/dist/index.html#/settings')
+    make(opts)
+    expect(sent).toHaveLength(1)
+    expect(sent[0]!.get('p')).toBe('/settings')
+    client!.track('x')
+    expect(sent[1]!.get('p')).toBe('/settings')
+  })
+
+  it('Electron secondary windows report their file name', () => {
+    setUA(ELECTRON_UA)
+    goto('file:///opt/my-app/resources/app/dist/prefs.html')
+    make(opts)
+    expect(sent[0]!.get('p')).toBe('/prefs.html')
+  })
+
+  it('a plain browser opening a local file is still ignored', () => {
+    goto('file:///home/alice/page.html')
+    make(opts)
+    expect(sent).toHaveLength(0)
+  })
+
+  it('Electron in dev mode (localhost dev server) is ignored', () => {
+    setUA(ELECTRON_UA)
+    make(opts)
+    expect(sent).toHaveLength(0)
+  })
+
+  it('custom app schemes count as production, including tauri://localhost', () => {
+    for (const u of ['app://bundle/index.html#/home', 'tauri://localhost/#/home', 'capacitor://localhost/home']) {
+      goto(u)
+      make(opts)
+      client!.destroy()
+    }
+    expect(sent.map((q) => q.get('p'))).toEqual(['/home', '/home', '/home'])
   })
 })

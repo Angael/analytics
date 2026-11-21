@@ -1,6 +1,6 @@
 # analytics
 
-Tiny, cookieless, self-hosted analytics: a Go server with an embedded dashboard, plus a typed client of about 1.2 KB.
+Tiny, cookieless, self-hosted analytics: a Go server with an embedded dashboard, plus a typed client of about 1.5 KB that works in websites and desktop apps (Electron, Tauri).
 Production instance: **https://pulse.widacki.me**
 
 | | |

@@ -71,6 +71,7 @@ th{text-align:right;font-weight:500;color:var(--mut);font-size:11px;padding:0 6p
   <div class="card"><h2>Devices</h2><div id="t-devices"></div></div>
   <div class="card"><h2>Browsers</h2><div id="t-browsers"></div></div>
   <div class="card"><h2>Operating systems</h2><div id="t-os"></div></div>
+  <div class="card" id="c-versions" hidden><h2>App versions</h2><div id="t-versions"></div></div>
 </section>
 </main>
 <div class="tip" id="tip"></div>
@@ -114,6 +115,9 @@ async function load() {
   table('t-devices', s.devices, 'Device');
   table('t-browsers', s.browsers, 'Browser');
   table('t-os', s.os, 'OS');
+  // Only shown for sites whose client reports a version (typically desktop apps).
+  $('c-versions').hidden = !(s.versions || []).length;
+  table('t-versions', s.versions, 'Version');
 }
 
 function decodeProps(p) {

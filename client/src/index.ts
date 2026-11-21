@@ -1,6 +1,10 @@
 /**
- * Tiny, cookieless analytics client (~1.2 KB gzipped). Framework agnostic and SSR safe:
+ * Tiny, cookieless analytics client (~1.5 KB gzipped). Framework agnostic and SSR safe:
  * every function is a no-op when there is no `window`.
+ *
+ * Runs in regular websites and in desktop app renderers (Electron, Tauri, Capacitor): pages loaded
+ * from `file:` or a custom `app://` scheme report clean routes instead of install paths, and hash
+ * routers (`#/settings`) are tracked as real pages.
  *
  * @example Quick start (singleton)
  * ```ts
@@ -72,10 +76,31 @@ export interface AnalyticsOptions {
    */
   clickAttribute?: string | false
   /**
-   * Don't send anything on `localhost`, `127.0.0.1`, `*.local` and `file:` pages.
+   * Don't send anything from development hosts: `localhost`, `127.0.0.1`, `[::1]`, `*.local`, and `file:` pages
+   * outside Electron. A packaged Electron app (loaded from `file:`) and custom app schemes (`app://`, `tauri://`)
+   * count as production; an Electron app in dev mode (served from `localhost`) is ignored like any dev server.
    * @default true
    */
   ignoreLocalhost?: boolean
+  /**
+   * Master switch. `false` sends nothing at all (events still reach `debug` logging).
+   * Use it for an "anonymous usage statistics" setting in a desktop app, or to gate on your own build flags.
+   * @default true
+   */
+  enabled?: boolean
+  /**
+   * App or release version, e.g. `"1.4.0"` (max 32 chars). Shown as "App versions" on the dashboard, so you can see
+   * which releases are in use. Most useful for desktop apps; in Electron pass `app.getVersion()` from the preload
+   * script, or inject your `package.json` version at build time.
+   */
+  version?: string
+  /**
+   * Treat hash routes (`#/settings`, `#!/settings`) as pages. Plain anchors like `#pricing` are never tracked.
+   * The route replaces the path when the page itself is `/`, otherwise it is appended: `/docs#/intro`.
+   * Hash routing is the norm in desktop apps loaded from `file:`.
+   * @default true
+   */
+  hashRoutes?: boolean
   /**
    * Don't send anything when the browser has Do Not Track / Global Privacy Control enabled.
    * @default false
@@ -94,7 +119,7 @@ export interface AnalyticsOptions {
 export interface Payload {
   /** `"pageview"` or `"event"`. */
   type: 'pageview' | 'event'
-  /** Page path (no query string, no hash). */
+  /** Page path (no query string). Includes the hash route when {@link AnalyticsOptions.hashRoutes} applies. */
   path: string
   /** Event name (custom events only). */
   name?: string
@@ -110,7 +135,7 @@ export interface Analytics<E extends EventMap = AnyEvents> {
    * Record a pageview. Called automatically when `autoPageviews` is on;
    * call it manually only if you disabled that, or for virtual pages.
    * Consecutive duplicate paths are ignored.
-   * @param path Defaults to `location.pathname`.
+   * @param path Defaults to the current route: `location.pathname`, or the hash route / file name in desktop apps.
    */
   pageview(path?: string): void
   /**
@@ -140,16 +165,34 @@ export function createAnalytics<E extends EventMap = AnyEvents>(options: Analyti
     autoPageviews = true,
     clickAttribute = 'data-track',
     ignoreLocalhost = true,
+    enabled = true,
     respectDnt = false,
+    hashRoutes = true,
+    version,
     beforeSend,
     debug,
   } = options
   const url = endpoint.replace(/\/+$/, '') + '/e'
   const nav = navigator as Navigator & { globalPrivacyControl?: boolean }
-  const disabled =
-    (ignoreLocalhost && /^(localhost|127\.|\[::1\]|.*\.local$)|^$/.test(location.hostname)) ||
-    (respectDnt && (nav.doNotTrack === '1' || nav.globalPrivacyControl === true)) ||
-    safeGet('minalytics:ignore') === '1'
+  const env = environment()
+  const off =
+    !enabled ||
+    (ignoreLocalhost && env.dev) ||
+    (respectDnt && (nav.doNotTrack === '1' || nav.globalPrivacyControl === true))
+  // Read on every send, so ignoreThisBrowser() (e.g. an opt-out toggle) applies immediately.
+  const isDisabled = () => off || safeGet(IGNORE_KEY) === '1'
+
+  /** Route of the current page, never leaking query strings or local install paths. */
+  const currentPath = () => {
+    let p = location.pathname
+    if (env.app) {
+      // file:///C:/Users/me/app/resources/app.asar/dist/index.html → /  (settings.html → /settings.html)
+      if (location.protocol === 'file:') p = p.slice(p.lastIndexOf('/'))
+      p = p.replace(/\/index\.html?$/, '/') || '/'
+    }
+    const route = hashRoutes && /^#!?\//.test(location.hash) ? location.hash.replace(/^#!?/, '').split('?')[0]! : ''
+    return !route ? p : p === '/' ? route : p + '#' + route
+  }
 
   let lastPath: string | undefined
   let firstView = true
@@ -157,9 +200,11 @@ export function createAnalytics<E extends EventMap = AnyEvents>(options: Analyti
   const send = (p: Payload) => {
     const out = beforeSend ? beforeSend(p) : p
     if (out === false) return
+    const disabled = isDisabled()
     if (debug) console.log('[minalytics]', disabled ? '(disabled)' : '', out)
     if (disabled) return
     const q = new URLSearchParams({ s: site, t: out.type[0]!, p: out.path, w: String(screen.width) })
+    if (version) q.set('v', version)
     if (out.name) q.set('n', out.name)
     if (out.referrer) q.set('r', out.referrer)
     if (out.props) {
@@ -177,7 +222,7 @@ export function createAnalytics<E extends EventMap = AnyEvents>(options: Analyti
     }
   }
 
-  const pageview = (path = location.pathname) => {
+  const pageview = (path = currentPath()) => {
     if (path === lastPath) return
     lastPath = path
     let referrer: string | undefined
@@ -190,7 +235,7 @@ export function createAnalytics<E extends EventMap = AnyEvents>(options: Analyti
     send({ type: 'pageview', path, referrer })
   }
 
-  const track = (name: string, props?: Props) => send({ type: 'event', path: location.pathname, name, props })
+  const track = (name: string, props?: Props) => send({ type: 'event', path: currentPath(), name, props })
 
   const cleanup: Array<() => void> = []
   const on = <K extends keyof WindowEventMap>(t: EventTarget, ev: K | string, fn: (e: any) => void, opts?: AddEventListenerOptions) => {
@@ -210,6 +255,8 @@ export function createAnalytics<E extends EventMap = AnyEvents>(options: Analyti
       history.pushState = origPush
     })
     on(window, 'popstate', onNav)
+    // Hash routers driven by plain links (<a href="#/settings">) only fire hashchange. Duplicates are deduped.
+    if (hashRoutes) on(window, 'hashchange', onNav)
     // Don't count pages prerendered by the browser until actually shown.
     const doc = document as Document & { prerendering?: boolean }
     if (doc.prerendering) on(document, 'prerenderingchange', () => pageview(), { once: true })
@@ -232,6 +279,22 @@ export function createAnalytics<E extends EventMap = AnyEvents>(options: Analyti
     track: track as Analytics<E>['track'],
     destroy: () => cleanup.splice(0).forEach((f) => f()),
   }
+}
+
+const IGNORE_KEY = 'minalytics:ignore'
+
+/**
+ * Where the page runs.
+ * - `app`: loaded from `file:` or a custom scheme (`app://`, `tauri://`, `capacitor://`), i.e. a desktop/mobile app shell.
+ * - `dev`: a development host, which `ignoreLocalhost` skips.
+ */
+function environment(): { app: boolean; dev: boolean } {
+  const { protocol, hostname } = location
+  if (/^https?:$/.test(protocol)) return { app: false, dev: /^(localhost|127\.|\[::1\]$|.*\.local$)|^$/.test(hostname) }
+  // file: is production only inside Electron (a packaged app); elsewhere it's a local file opened in a browser.
+  if (protocol === 'file:') return { app: true, dev: !/\bElectron\//.test(navigator.userAgent) }
+  // Custom app schemes have a host (app://bundle, tauri://localhost); about:, data:, blob: don't and are skipped.
+  return { app: !!hostname, dev: !hostname }
 }
 
 function safeGet(k: string): string | null {
@@ -269,12 +332,18 @@ export function pageview(path?: string): void {
 }
 
 /**
- * Exclude (or re-include) the current browser from tracking, e.g. for yourself.
- * Persists in `localStorage`; takes effect on next page load.
+ * Exclude (or re-include) the current browser from tracking, e.g. for yourself, or as the backing store for a
+ * "send anonymous usage statistics" toggle in a desktop app. Persists in `localStorage` and takes effect immediately
+ * for every client on this origin.
  * Tip: run `localStorage.setItem('minalytics:ignore', '1')` in the devtools console of your site.
  */
 export function ignoreThisBrowser(ignore = true): void {
   try {
-    ignore ? localStorage.setItem('minalytics:ignore', '1') : localStorage.removeItem('minalytics:ignore')
+    ignore ? localStorage.setItem(IGNORE_KEY, '1') : localStorage.removeItem(IGNORE_KEY)
   } catch {}
+}
+
+/** Whether this browser is excluded via {@link ignoreThisBrowser}. Handy to render an opt-out toggle's state. */
+export function isBrowserIgnored(): boolean {
+  return safeGet(IGNORE_KEY) === '1'
 }

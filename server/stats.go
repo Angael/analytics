@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -35,6 +36,7 @@ type stats struct {
 	Devices  []row   `json:"devices"`
 	Browsers []row   `json:"browsers"`
 	OS       []row   `json:"os"`
+	Versions []row   `json:"versions"`
 }
 
 // statsHandler: GET /api/stats?site=blog&from=<unix>&to=<unix>&tz=<minutes, as JS getTimezoneOffset()>
@@ -74,8 +76,9 @@ func (s *store) statsHandler(w http.ResponseWriter, r *http.Request) {
 	must(e)
 	out.Series = pts
 
-	top := func(sel, group string, typ int, labels []string) []row {
-		rows, e := queryRows(s.db, `SELECT `+sel+`, count(*), count(DISTINCT visitor)`+where+` AND typ=`+strconv.Itoa(typ)+` GROUP BY `+group+` ORDER BY 2 DESC LIMIT 50`, labels, args...)
+	top := func(sel, group string, typ int, labels []string, cond ...string) []row {
+		extra := strings.Join(append([]string{""}, cond...), " AND ")
+		rows, e := queryRows(s.db, `SELECT `+sel+`, count(*), count(DISTINCT visitor)`+where+` AND typ=`+strconv.Itoa(typ)+extra+` GROUP BY `+group+` ORDER BY 2 DESC LIMIT 50`, labels, args...)
 		must(e)
 		return rows
 	}
@@ -88,6 +91,8 @@ func (s *store) statsHandler(w http.ResponseWriter, r *http.Request) {
 	out.Devices = top("device", "device", 0, devices)
 	out.Browsers = top("browser", "browser", 0, browsers)
 	out.OS = top("os", "os", 0, oses)
+	// Only clients that report a version (mostly desktop apps); unversioned traffic would just be one big blank row.
+	out.Versions = top(strOf("ver"), "ver", 0, nil, "ver IS NOT NULL")
 
 	rows, e := s.db.Query(`SELECT `+strOf("name")+`, coalesce(`+strOf("props")+`, ''), count(*), count(DISTINCT visitor)`+where+` AND typ=1 AND props IS NOT NULL GROUP BY name, props ORDER BY 3 DESC LIMIT 100`, args...)
 	must(e)

@@ -4,7 +4,7 @@ import "strings"
 
 // Enum labels. Index = stored value. Append only, never reorder.
 var (
-	browsers = []string{"Other", "Chrome", "Firefox", "Safari", "Edge", "Opera", "Samsung", "Brave"}
+	browsers = []string{"Other", "Chrome", "Firefox", "Safari", "Edge", "Opera", "Samsung", "Brave", "Electron"}
 	oses     = []string{"Other", "Windows", "macOS", "Linux", "Android", "iOS", "ChromeOS"}
 	devices  = []string{"Desktop", "Mobile", "Tablet"}
 )
@@ -15,7 +15,7 @@ func isBot(ua string) bool {
 	if ua == "" {
 		return true
 	}
-	l := strings.ToLower(ua)
+	l := strings.ToLower(stripAppToken(ua))
 	for _, m := range botMarkers {
 		if strings.Contains(l, m) {
 			return true
@@ -24,9 +24,33 @@ func isBot(ua string) bool {
 	return false
 }
 
+// stripAppToken removes the product token Electron inserts for the app itself
+// ("... (KHTML, like Gecko) my-app/1.2.0 Chrome/130 ... Electron/33 ..."), so an app
+// named e.g. "Uptime Monitor" isn't mistaken for a bot. Non-Electron UAs are returned unchanged.
+func stripAppToken(ua string) string {
+	if !strings.Contains(ua, "Electron/") {
+		return ua
+	}
+	const gecko = "like Gecko) "
+	i := strings.Index(ua, gecko)
+	if i < 0 {
+		return ua
+	}
+	rest := ua[i+len(gecko):]
+	j := strings.Index(rest, "Chrome/")
+	if j < 0 {
+		return ua
+	}
+	// Cut at the start of the token holding "Chrome/" so "HeadlessChrome/" survives intact.
+	k := strings.LastIndexByte(rest[:j], ' ') + 1
+	return ua[:i+len(gecko)] + rest[k:]
+}
+
 // parseUA is a deliberately coarse UA classifier. width is the screen width reported by the client (0 = unknown).
 func parseUA(ua string, width int) (browser, os, device int) {
 	switch {
+	case strings.Contains(ua, "Electron/"):
+		browser = 8
 	case strings.Contains(ua, "Edg/"):
 		browser = 4
 	case strings.Contains(ua, "OPR/"):

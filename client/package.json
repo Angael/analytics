@@ -1,8 +1,8 @@
 {
   "name": "minalytics",
   "packageManager": "pnpm@12.3.4",
-  "version": "0.1.0",
-  "description": "Tiny (~1 KB gzipped), cookieless, typed analytics client for the self-hosted minalytics server.",
+  "version": "0.2.0",
+  "description": "Tiny (~1.5 KB gzipped), cookieless, typed analytics client for the self-hosted minalytics server. Works in websites and Electron/Tauri apps.",
   "license": "MIT",
   "type": "module",
   "sideEffects": false,

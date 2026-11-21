@@ -1,6 +1,10 @@
 /**
- * Tiny, cookieless analytics client (~1.2 KB gzipped). Framework agnostic and SSR safe:
+ * Tiny, cookieless analytics client (~1.5 KB gzipped). Framework agnostic and SSR safe:
  * every function is a no-op when there is no `window`.
+ *
+ * Runs in regular websites and in desktop app renderers (Electron, Tauri, Capacitor): pages loaded
+ * from `file:` or a custom `app://` scheme report clean routes instead of install paths, and hash
+ * routers (`#/settings`) are tracked as real pages.
  *
  * @example Quick start (singleton)
  * ```ts
@@ -64,10 +68,31 @@ export interface AnalyticsOptions {
      */
     clickAttribute?: string | false;
     /**
-     * Don't send anything on `localhost`, `127.0.0.1`, `*.local` and `file:` pages.
+     * Don't send anything from development hosts: `localhost`, `127.0.0.1`, `[::1]`, `*.local`, and `file:` pages
+     * outside Electron. A packaged Electron app (loaded from `file:`) and custom app schemes (`app://`, `tauri://`)
+     * count as production; an Electron app in dev mode (served from `localhost`) is ignored like any dev server.
      * @default true
      */
     ignoreLocalhost?: boolean;
+    /**
+     * Master switch. `false` sends nothing at all (events still reach `debug` logging).
+     * Use it for an "anonymous usage statistics" setting in a desktop app, or to gate on your own build flags.
+     * @default true
+     */
+    enabled?: boolean;
+    /**
+     * App or release version, e.g. `"1.4.0"` (max 32 chars). Shown as "App versions" on the dashboard, so you can see
+     * which releases are in use. Most useful for desktop apps; in Electron pass `app.getVersion()` from the preload
+     * script, or inject your `package.json` version at build time.
+     */
+    version?: string;
+    /**
+     * Treat hash routes (`#/settings`, `#!/settings`) as pages. Plain anchors like `#pricing` are never tracked.
+     * The route replaces the path when the page itself is `/`, otherwise it is appended: `/docs#/intro`.
+     * Hash routing is the norm in desktop apps loaded from `file:`.
+     * @default true
+     */
+    hashRoutes?: boolean;
     /**
      * Don't send anything when the browser has Do Not Track / Global Privacy Control enabled.
      * @default false
@@ -85,7 +110,7 @@ export interface AnalyticsOptions {
 export interface Payload {
     /** `"pageview"` or `"event"`. */
     type: 'pageview' | 'event';
-    /** Page path (no query string, no hash). */
+    /** Page path (no query string). Includes the hash route when {@link AnalyticsOptions.hashRoutes} applies. */
     path: string;
     /** Event name (custom events only). */
     name?: string;
@@ -100,7 +125,7 @@ export interface Analytics<E extends EventMap = AnyEvents> {
      * Record a pageview. Called automatically when `autoPageviews` is on;
      * call it manually only if you disabled that, or for virtual pages.
      * Consecutive duplicate paths are ignored.
-     * @param path Defaults to `location.pathname`.
+     * @param path Defaults to the current route: `location.pathname`, or the hash route / file name in desktop apps.
      */
     pageview(path?: string): void;
     /**
@@ -134,8 +159,11 @@ export declare function track(name: string, props?: Props): void;
 /** Track a pageview on the shared client. Usually automatic. No-op before {@link init} or on the server. */
 export declare function pageview(path?: string): void;
 /**
- * Exclude (or re-include) the current browser from tracking, e.g. for yourself.
- * Persists in `localStorage`; takes effect on next page load.
+ * Exclude (or re-include) the current browser from tracking, e.g. for yourself, or as the backing store for a
+ * "send anonymous usage statistics" toggle in a desktop app. Persists in `localStorage` and takes effect immediately
+ * for every client on this origin.
  * Tip: run `localStorage.setItem('minalytics:ignore', '1')` in the devtools console of your site.
  */
 export declare function ignoreThisBrowser(ignore?: boolean): void;
+/** Whether this browser is excluded via {@link ignoreThisBrowser}. Handy to render an opt-out toggle's state. */
+export declare function isBrowserIgnored(): boolean;

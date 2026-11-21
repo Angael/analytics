@@ -17,13 +17,13 @@ Each site you track needs a **site key**, a short id such as `blog` or `portfoli
 
 ## Option B: npm package (typed)
 
-The repository is private, so install the package from git. Locally this uses your GitHub SSH or `gh` credentials.
+The repository is public, so install the package straight from git. No credentials are needed.
 
 ```sh
 pnpm add "github:Angael/analytics#main&path:client"
 ```
 The built `dist/` is committed, so nothing runs on install. npm and yarn can't install from a git subdirectory; use pnpm, or Option A.
-> **CI/CD builds** (Vercel, Cloudflare Pages, Dokploy) need read access to the private repo. Use a fine-grained GitHub token, for example `git+https://<token>@github.com/Angael/analytics.git#main&path:client`. Alternatively, use Option A, which needs no build-time access.
+> **CI/CD builds** (Vercel, Cloudflare Pages, Dokploy) install it the same way, with no token.
 
 Create one module per app:
 

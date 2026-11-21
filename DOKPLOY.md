@@ -5,7 +5,7 @@ The image is about 16 MB and uses about 15 MB of RAM. Data is a single SQLite fi
 
 ## 1. DNS (Cloudflare)
 
-- Add an `A` record: `pulse` → VPS IP, **Proxied (orange cloud)**. The proxy is required because the server reads `CF-IPCountry` and `CF-Connecting-IP`.
+- Nothing to add if your apex/wildcard record already points at the VPS and Traefik routes subdomains. Just make sure `pulse.widacki.me` resolves through a **Proxied (orange cloud)** record. The proxy is required because the server reads `CF-IPCountry` and `CF-Connecting-IP`; if it's grey-clouded, country is empty and every visitor shares Traefik's IP view.
 - Set SSL/TLS mode to **Full (strict)**. Dokploy/Traefik gets a Let's Encrypt cert. If HTTP-01 fails behind the proxy, set the domain's certificate to *None* in Dokploy and use a Cloudflare Origin Certificate, or temporarily grey-cloud the record while issuing.
 - Optional: under **Rules → Configuration rules** for `pulse.widacki.me`, disable *Rocket Loader* and *Email obfuscation*. Leave caching on. `/a.js` sends `Cache-Control: public, max-age=86400`, and `/e` is a POST that is never cached.
 
@@ -37,9 +37,6 @@ The image has a built-in `HEALTHCHECK` (`/analytics healthcheck`), so Dokploy's 
 
 ### Alternative: Compose service
 **Create Service → Compose**, same repo, compose path `compose.yaml`. Set the env vars in the Environment tab, then add the domain in the Domains tab (service `analytics`, port `8080`). `compose.yaml` publishes no host ports, and Dokploy attaches Traefik. The volume `analytics-data` is declared in the file.
-
-### Alternative: prebuilt image
-CI pushes `ghcr.io/angael/analytics:latest` on every push to main. In Dokploy, choose **Provider: Docker**, image `ghcr.io/angael/analytics:latest`, and add registry credentials (GitHub username plus a PAT with `read:packages`, because the package is private). The env, mounts and domain are the same as above. This skips building on the VPS.
 
 ## Add a new site
 1. Append the key to `SITES` in Dokploy (for example `blog,portfolio,newsite`) and **redeploy**. Env changes need a redeploy.

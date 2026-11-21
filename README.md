@@ -21,4 +21,4 @@ cd client && pnpm i && pnpm test && pnpm build   # build refreshes client/dist +
 cd server && go test ./... && DASHBOARD_PASSWORD=x DB_PATH=./dev.db go run .
 DASHBOARD_PASSWORD=x docker compose -f compose.yaml -f compose.local.yaml up --build   # http://localhost:8080
 ```
-CI (`.github/workflows/ci.yml`) runs both test suites, checks that `a.js` is up to date, and pushes `ghcr.io/angael/analytics:latest` on main.
+CI (`.github/workflows/ci.yml`) runs both test suites and checks that the committed build output is up to date, on PRs and pushes to main. No images are published; Dokploy builds the image on the VPS, and the Dockerfile runs the Go tests so a failing build never ships.
